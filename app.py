@@ -91,7 +91,7 @@ def analyze_image() -> Union[Dict[str, Any], tuple[Dict[str, str], int]]:
         
         # Create OpenAI vision request
         logger.info("Sending image to OpenAI for analysis")
-        response = openai.chat.completions.create(
+        response = openai.ChatCompletion.create(
             model=model,
             messages=[
                 {
@@ -114,7 +114,7 @@ def analyze_image() -> Union[Dict[str, Any], tuple[Dict[str, str], int]]:
             max_tokens=300
         )
         
-        return jsonify({'ingredients': response.choices[0].message.content})
+        return jsonify({'ingredients': response['choices'][0]['message']['content']})
     
     except ValueError as ve:
         logger.error(f"Validation error: {str(ve)}")
@@ -139,7 +139,7 @@ def suggest_meals() -> Union[Dict[str, Any], tuple[Dict[str, str], int]]:
         
         # Get meal suggestions based on confirmed ingredients
         logger.info("Requesting meal suggestions from OpenAI")
-        response = openai.chat.completions.create(
+        response = openai.ChatCompletion.create(
             model=model,
             messages=[
                 {
@@ -156,7 +156,7 @@ def suggest_meals() -> Union[Dict[str, Any], tuple[Dict[str, str], int]]:
             max_tokens=500
         )
         
-        return jsonify({'suggestions': response.choices[0].message.content})
+        return jsonify({'suggestions': response['choices'][0]['message']['content']})
     
     except Exception as e:
         logger.error(f"Error in suggest_meals: {str(e)}")
