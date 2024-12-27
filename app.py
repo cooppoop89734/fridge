@@ -5,12 +5,21 @@ This module handles the web server and AI integration components.
 
 import os
 import base64
+import logging
 from io import BytesIO
+from typing import Dict, Union, Any
 
 from flask import Flask, request, jsonify, render_template
 from dotenv import load_dotenv
 from PIL import Image
 import openai
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -25,25 +34,22 @@ if not openai.api_key:
 # Get model from environment variable
 model = os.getenv('OPENAI_MODEL', 'gpt-4-vision-preview')
 
-@app.route('/')
-def home():
-    """Render the home page with the image upload interface."""
-    return render_template('index.html')
-
-@app.route('/analyze', methods=['POST'])
-def analyze_image():
+def process_image(image_data: str) -> Image.Image:
     """
-    Analyze an uploaded image to identify food ingredients.
+    Process and validate the incoming image data.
     
+    Args:
+        image_data: Base64 encoded image data
+        
     Returns:
-        JSON response containing the list of identified ingredients or error message.
+        PIL Image object
+        
+    Raises:
+        ValueError: If image processing fails
     """
     try:
-        # Get the image data from the request
-        image_data = request.json['image'].split(',')[1]
-        image_bytes = base64.b64decode(image_data)
-        
-        # Convert to PIL Image and save to BytesIO
+        # Decode base64 image
+        image_bytes = base64.b64decode(image_data.split(',')[1])
         image = Image.open(BytesIO(image_bytes))
         
         # Convert RGBA to RGB if necessary
@@ -53,11 +59,38 @@ def analyze_image():
                 image = image.convert('RGBA')
             background.paste(image, mask=image.split()[-1])
             image = background
+            
+        return image
+    except Exception as e:
+        logger.error(f"Image processing failed: {str(e)}")
+        raise ValueError(f"Invalid image format: {str(e)}")
+
+@app.route('/')
+def home() -> str:
+    """Render the home page with the image upload interface."""
+    return render_template('index.html')
+
+@app.route('/analyze', methods=['POST'])
+def analyze_image() -> Union[Dict[str, Any], tuple[Dict[str, str], int]]:
+    """
+    Analyze an uploaded image to identify food ingredients.
+    
+    Returns:
+        JSON response containing the list of identified ingredients or error message.
+    """
+    try:
+        if not request.json or 'image' not in request.json:
+            return jsonify({'error': 'No image data provided'}), 400
+            
+        # Process the image
+        image = process_image(request.json['image'])
         
+        # Prepare image for API
         buffered = BytesIO()
         image.save(buffered, format="JPEG", quality=95)
         
         # Create OpenAI vision request
+        logger.info("Sending image to OpenAI for analysis")
         response = openai.chat.completions.create(
             model=model,
             messages=[
@@ -83,11 +116,15 @@ def analyze_image():
         
         return jsonify({'ingredients': response.choices[0].message.content})
     
+    except ValueError as ve:
+        logger.error(f"Validation error: {str(ve)}")
+        return jsonify({'error': str(ve)}), 400
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Unexpected error in analyze_image: {str(e)}")
+        return jsonify({'error': 'An unexpected error occurred'}), 500
 
 @app.route('/suggest', methods=['POST'])
-def suggest_meals():
+def suggest_meals() -> Union[Dict[str, Any], tuple[Dict[str, str], int]]:
     """
     Generate meal suggestions based on the provided ingredients.
     
@@ -95,9 +132,13 @@ def suggest_meals():
         JSON response containing meal suggestions or error message.
     """
     try:
+        if not request.json or 'ingredients' not in request.json:
+            return jsonify({'error': 'No ingredients provided'}), 400
+            
         ingredients = request.json['ingredients']
         
         # Get meal suggestions based on confirmed ingredients
+        logger.info("Requesting meal suggestions from OpenAI")
         response = openai.chat.completions.create(
             model=model,
             messages=[
@@ -118,7 +159,8 @@ def suggest_meals():
         return jsonify({'suggestions': response.choices[0].message.content})
     
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Error in suggest_meals: {str(e)}")
+        return jsonify({'error': 'An unexpected error occurred'}), 500
 
 if __name__ == '__main__':
     app.run(debug=True) 
