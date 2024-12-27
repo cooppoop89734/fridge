@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Food Vision - Meal Suggestions</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold text-center mb-8 text-gray-800">Food Vision - Meal Suggestions</h1>
+        
+        <div class="max-w-2xl mx-auto bg-white rounded-lg shadow-md p-6">
+            <div class="mb-6">
+                <div class="flex flex-col items-center">
+                    <video id="video" class="w-full h-64 bg-gray-200 rounded-lg mb-4" autoplay playsinline></video>
+                    <canvas id="canvas" style="display: none;"></canvas>
+                    <div class="flex gap-4">
+                        <button id="captureBtn" class="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition-colors">
+                            Take Picture
+                        </button>
+                        <input type="file" id="fileInput" accept="image/*" class="hidden">
+                        <button id="uploadBtn" class="bg-green-500 text-white px-6 py-2 rounded-lg hover:bg-green-600 transition-colors">
+                            Upload Image
+                        </button>
+                    </div>
+                </div>
+                <div id="imagePreview" class="mt-4 hidden">
+                    <img id="preview" class="w-full rounded-lg" alt="Preview">
+                    <button id="analyzeBtn" class="mt-4 w-full bg-purple-500 text-white px-6 py-2 rounded-lg hover:bg-purple-600 transition-colors">
+                        Identify Ingredients
+                    </button>
+                </div>
+            </div>
+            
+            <div id="loadingIndicator" class="hidden">
+                <div class="flex items-center justify-center">
+                    <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500"></div>
+                    <span class="ml-2">Processing...</span>
+                </div>
+            </div>
+
+            <div id="ingredientsSection" class="mt-6 hidden">
+                <h2 class="text-xl font-semibold mb-4">Identified Ingredients:</h2>
+                <div id="ingredientsList" class="prose max-w-none mb-4"></div>
+                <div class="flex gap-4">
+                    <button id="editBtn" class="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition-colors">
+                        Edit Ingredients
+                    </button>
+                    <button id="confirmBtn" class="bg-green-500 text-white px-6 py-2 rounded-lg hover:bg-green-600 transition-colors">
+                        Get Meal Suggestions
+                    </button>
+                </div>
+            </div>
+
+            <div id="suggestions" class="mt-6 hidden">
+                <h2 class="text-xl font-semibold mb-4">Suggested Meals:</h2>
+                <div id="suggestionsContent" class="prose max-w-none"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let stream;
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const captureBtn = document.getElementById('captureBtn');
+        const uploadBtn = document.getElementById('uploadBtn');
+        const fileInput = document.getElementById('fileInput');
+        const imagePreview = document.getElementById('imagePreview');
+        const preview = document.getElementById('preview');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const ingredientsSection = document.getElementById('ingredientsSection');
+        const ingredientsList = document.getElementById('ingredientsList');
+        const editBtn = document.getElementById('editBtn');
+        const confirmBtn = document.getElementById('confirmBtn');
+        const suggestions = document.getElementById('suggestions');
+        const suggestionsContent = document.getElementById('suggestionsContent');
+
+        // Start camera
+        async function startCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+            } catch (err) {
+                console.error('Error accessing camera:', err);
+                captureBtn.disabled = true;
+            }
+        }
+
+        startCamera();
+
+        // Capture image
+        captureBtn.addEventListener('click', () => {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            preview.src = canvas.toDataURL('image/jpeg');
+            imagePreview.classList.remove('hidden');
+            stream.getTracks().forEach(track => track.stop());
+            video.classList.add('hidden');
+            captureBtn.classList.add('hidden');
+        });
+
+        // Handle file upload
+        uploadBtn.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    preview.src = e.target.result;
+                    imagePreview.classList.remove('hidden');
+                    video.classList.add('hidden');
+                    captureBtn.classList.add('hidden');
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // Analyze image for ingredients
+        analyzeBtn.addEventListener('click', async () => {
+            loadingIndicator.classList.remove('hidden');
+            ingredientsSection.classList.add('hidden');
+            suggestions.classList.add('hidden');
+            
+            try {
+                const response = await fetch('/analyze', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        image: preview.src
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                ingredientsList.innerHTML = data.ingredients;
+                ingredientsSection.classList.remove('hidden');
+            } catch (error) {
+                alert('Error analyzing image: ' + error.message);
+            } finally {
+                loadingIndicator.classList.add('hidden');
+            }
+        });
+
+        // Edit ingredients
+        editBtn.addEventListener('click', () => {
+            const currentList = ingredientsList.innerHTML;
+            ingredientsList.contentEditable = true;
+            ingredientsList.focus();
+            ingredientsList.classList.add('border', 'border-blue-500', 'p-2', 'rounded');
+            editBtn.textContent = 'Done Editing';
+            editBtn.onclick = () => {
+                ingredientsList.contentEditable = false;
+                ingredientsList.classList.remove('border', 'border-blue-500', 'p-2', 'rounded');
+                editBtn.textContent = 'Edit Ingredients';
+                editBtn.onclick = () => editBtn.click();
+            };
+        });
+
+        // Get meal suggestions
+        confirmBtn.addEventListener('click', async () => {
+            loadingIndicator.classList.remove('hidden');
+            suggestions.classList.add('hidden');
+            
+            try {
+                const response = await fetch('/suggest', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        ingredients: ingredientsList.innerHTML
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                suggestionsContent.innerHTML = data.suggestions.replace(/\n/g, '<br>');
+                suggestions.classList.remove('hidden');
+            } catch (error) {
+                alert('Error getting suggestions: ' + error.message);
+            } finally {
+                loadingIndicator.classList.add('hidden');
+            }
+        });
+    </script>
+</body>
+</html> 
